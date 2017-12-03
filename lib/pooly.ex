@@ -13,9 +13,11 @@ defmodule Pooly do
   end
 
   def checkout do
+    Pooly.Server.checkout()
   end
 
   def checkin(worker_pid) do
+    Pooly.Server.checkin(worker_pid)
   end
 
   def status do
