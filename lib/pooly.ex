@@ -21,5 +21,6 @@ defmodule Pooly do
   end
 
   def status do
+    Pooly.Server.status()
   end
 end
