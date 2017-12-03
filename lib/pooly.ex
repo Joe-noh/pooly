@@ -1,18 +1,20 @@
 defmodule Pooly do
   @moduledoc """
-  Documentation for Pooly.
+  Pooly from The Little Elixir & OTP Guidebook
   """
 
-  @doc """
-  Hello world.
+  def start(_type, _args) do
+  end
 
-  ## Examples
+  def start_pool(pool_config) do
+  end
 
-      iex> Pooly.hello
-      :world
+  def checkout do
+  end
 
-  """
-  def hello do
-    :world
+  def checkin(worker_pid) do
+  end
+
+  def status do
   end
 end
