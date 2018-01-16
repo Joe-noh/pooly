@@ -100,6 +100,11 @@ defmodule Pooly.PoolServer do
     end
   end
 
+  # handle :EXIT from worker_sup
+  def handle_info({:EXIT, worker_sup, reason}, state = %{worker_sup: worker_sup}) do
+    {:stop, reason, state}
+  end
+
   def handle_info({:EXIT, pid, _reason}, state = %{workers: workers, monitors: monitors, pool_sup: pool_sup}) do
     case :ets.lookup(monitors, pid) do
       [{pid, ref}] ->
