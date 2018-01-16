@@ -8,111 +8,40 @@ defmodule Pooly.Server do
 
   # API
 
-  def start_link(sup, pool_config) do
-    GenServer.start_link(__MODULE__, [sup, pool_config], name: __MODULE__)
+  def start_link(pools_config) do
+    GenServer.start_link(__MODULE__, pools_config, name: __MODULE__)
   end
 
-  def checkout do
-    GenServer.call(__MODULE__, :checkout)
+  def checkout(pool_name) do
+    GenServer.call(:"#{pool_name}Server", :checkout)
   end
 
-  def checkin(worker_pid) do
-    GenServer.cast(__MODULE__, {:checkin, worker_pid})
+  def checkin(pool_name, worker_pid) do
+    GenServer.cast(:"#{pool_name}Server", {:checkin, worker_pid})
   end
 
-  def status do
-    GenServer.call(__MODULE__, :status)
+  def status(pool_name) do
+    GenServer.call(:"#{pool_name}Server", :status)
   end
 
   # Callbacks
 
-  def init([sup, pool_config]) when is_pid(sup) do
-    Process.flag(:trap_exit, true)
-    monitors = :ets.new(:monitors, [:private])
-    init(pool_config, %State{sup: sup, monitors: monitors})
-  end
-  def init([{:mfa, mfa} | rest], state) do
-    init(rest, %{state | mfa: mfa})
-  end
-  def init([{:size, size} | rest], state) do
-    init(rest, %{state | size: size})
-  end
-  def init([_ | rest], state) do
-    init(rest, state)
-  end
-  def init([], state) do
-    send(self(), :start_worker_supervisor)
-    {:ok, state}
-  end
-
-  def handle_call(:checkout, _from, state = %{workers: []}) do
-    {:reply, :noproc, state}
-  end
-  def handle_call(:checkout, {from_pid, _}, state = %{workers: [worker | rest], monitors: monitors}) do
-    :ets.insert(monitors, {worker, Process.monitor(from_pid)})
-
-    {:reply, worker, %{state | workers: rest}}
-  end
-
-  def handle_call(:status, _from, state = %{workers: workers, monitors: monitors}) do
-    {:reply, {length(workers), :ets.info(monitors, :size)}, state}
-  end
-
-  def handle_cast({:checkin, worker}, state = %{workers: workers, monitors: monitors}) do
-    case :ets.lookup(monitors, worker) do
-      [{pid, ref}] ->
-        Process.demonitor(ref)
-        :ets.delete(monitors, pid)
-
-        {:noreply, %{state | workers: [pid | workers]}}
-      [] ->
-        {:noreply, state}
+  def init(pools_config) do
+    Enum.each pools_config, fn config ->
+      send(self(), {:start_pool, config})
     end
+
+    {:ok, pools_config}
   end
 
-  def handle_info(:start_worker_supervisor, state = %{sup: sup, mfa: mfa, size: size}) do
-    {:ok, worker_sup} = Supervisor.start_child(sup, supervisor_spec(mfa))
-    workers = prepopulate(size, worker_sup)
+  def handle_info({:start_pool, pool_config}, state) do
+    {:ok, _pool_sup} = Supervisor.start_child(Pooly.PoolsSupervisor, supervisor_spec(pool_config))
 
-    {:noreply, %{state | worker_sup: worker_sup, workers: workers}}
+    {:noreply, state}
   end
 
-  def handle_info({:DOWN, ref, _, _, _}, state = %{workers: workers, monitors: monitors}) do
-    case :ets.match(monitors, {:"$1", ref}) do
-      [[pid]] ->
-        :ets.delete(monitors, pid)
-        new_state = %{state | workers: [pid | workers]}
-        {:noreply, new_state}
-      [[]] ->
-        {:noreply, state}
-    end
-  end
-
-  def handle_info({:EXIT, pid, _reason}, state = %{workers: workers, monitors: monitors, worker_sup: worker_sup}) do
-    case :ets.lookup(monitors, pid) do
-      [{pid, ref}] ->
-        Process.demonitor(ref)
-        :ets.delete(monitors, pid)
-
-        {:ok, worker} = Supervisor.start_child(worker_sup, [[]])
-        {:noreply, %{state | workers: [worker | workers]}}
-      [] ->
-        {:noreply, state}
-    end
-  end
-
-  defp supervisor_spec(mfa) do
-    supervisor(Pooly.WorkerSupervisor, [mfa], [restart: :temporary])
-  end
-
-  defp prepopulate(size, worker_sup) do
-    prepopulate(size, worker_sup, [])
-  end
-  defp prepopulate(size, _sup, workers) when size < 1 do
-    workers
-  end
-  defp prepopulate(size, sup, workers) do
-    {:ok, worker} = Supervisor.start_child(sup, [[]])
-    prepopulate(size - 1, sup, [worker | workers])
+  defp supervisor_spec(pool_config) do
+    opts = [id: :"#{pool_config[:name]}Supervisor"]
+    supervisor(Pooly.PoolSupervisor, [pool_config], opts)
   end
 end
