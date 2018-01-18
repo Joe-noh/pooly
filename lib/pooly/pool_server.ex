@@ -61,13 +61,26 @@ defmodule Pooly.PoolServer do
     {:ok, state}
   end
 
-  def handle_call(:checkout, _from, state = %{workers: []}) do
-    {:reply, :noproc, state}
-  end
-  def handle_call(:checkout, {from_pid, _ref}, state = %{workers: [worker | rest], monitors: monitors}) do
-    :ets.insert(monitors, {worker, Process.monitor(from_pid)})
+  def handle_call({:checkout, block}, from = {from_pid, _ref}, state) do
+    %{
+      worker_sup: worker_sup,
+      workers: workers,
+      monitors: monitors,
+      overflow: overflow,
+      max_overflow: max_overflow,
+    } = state
 
-    {:reply, worker, %{state | workers: rest}}
+    case workers do
+      [worker | rest] ->
+        :ets.insert(monitors, {worker, Process.monitor(from_pid)})
+        {:reply, worker, %{state | workers: rest}}
+      [] when 0 < max_overflow and overflow < max_overflow ->
+        {worker, ref} = new_worker(worker_sup, from_pid)
+        :ets.insert(monitors, {worker, ref})
+        {:reply, worker, %{state | overflow: overflow + 1}}
+      [] ->
+        {:reply, :full, state}
+    end
   end
 
   def handle_call(:status, _from, state = %{workers: workers, monitors: monitors}) do
@@ -144,6 +157,7 @@ defmodule Pooly.PoolServer do
   defp prepopulate(size, sup, workers) do
     prepopulate(size - 1, sup, [new_worker(sup) | workers])
   end
+
   defp new_worker(sup) do
     {:ok, worker} = Supervisor.start_child(sup, [[]])
     worker
