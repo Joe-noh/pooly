@@ -84,7 +84,7 @@ defmodule Pooly.PoolServer do
   end
 
   def handle_call(:status, _from, state = %{workers: workers, monitors: monitors}) do
-    {:reply, {length(workers), :ets.info(monitors, :size)}, state}
+    {:reply, {state_name(state), length(workers), :ets.info(monitors, :size)}, state}
   end
 
   def handle_cast({:checkin, worker}, state = %{monitors: monitors}) do
@@ -173,6 +173,26 @@ defmodule Pooly.PoolServer do
     else
       %{state | workers: [new_worker(worker_sup) | workers]}
     end
+  end
+
+  defp state_name(%State{overflow: 0, max_overflow: 0, workers: []]}) do
+    :full
+  end
+
+  defp state_name(%State{overflow: 0, max_overflow: _, workers: []]}) do
+    :overflow
+  end
+
+  defp state_name(%State{overflow: 0}) do
+    :ready
+  end
+
+  defp state_name(%State{overflow: max_overflow, max_overflow: max_overflow}) do
+    :full
+  end
+
+  defp state_name(_state) do
+    :overflow
   end
 
   defp name(pool_name) do
